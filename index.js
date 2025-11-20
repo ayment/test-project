@@ -10,29 +10,37 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 if (!BOT_TOKEN) throw new Error("Missing BOT_TOKEN");
 if (!START_TASK_URL) throw new Error("Missing START_TASK_URL");
-if (!WEBHOOK_URL) throw new Error("Missing WEBHOOK_URL (your Fly.io https URL)");
+if (!WEBHOOK_URL) throw new Error("Missing WEBHOOK_URL");
 
 const bot = new Telegraf(BOT_TOKEN);
+const app = express();
+app.use(express.json());
+
+app.get("/", (req, res) => {
+    res.send("Bot is running!");
+});
 
 bot.on("document", async (ctx) => {
     try {
         const file = ctx.message.document;
-
+        
         if (!file.file_name.match(/\.(ppt|pptx)$/i)) {
             return ctx.reply("❌ Only PPT/PPTX files are allowed.");
         }
 
         await ctx.reply("⏳ Converting your PPT… (جاري تحويل الملف)");
-
         const fileInfo = await ctx.telegram.getFile(file.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileInfo.file_path}`;
-
         const tgRes = await axios.get(fileUrl, { responseType: "arraybuffer" });
         const fileBuffer = Buffer.from(tgRes.data);
-
         const startResp = await axios.post(START_TASK_URL);
         const { server, task, token } = startResp.data;
 
+        if (!server || !task || !token) {
+            throw new Error("Invalid response from backend");
+        }
+
+        console.log("Task created:", task.substring(0, 30) + "...");
         const form = new FormData();
         form.append("task", task);
         form.append("file", fileBuffer, file.file_name);
@@ -43,9 +51,14 @@ bot.on("document", async (ctx) => {
             { headers: { ...form.getHeaders(), Authorization: `Bearer ${token}` } }
         );
 
-        const serverFilename = uploadResp.data.server_filename;
+        console.log("Upload response:", uploadResp.data);
 
-        await axios.post(
+        if (!uploadResp.data.server_filename) {
+            throw new Error("Upload failed: " + JSON.stringify(uploadResp.data));
+        }
+
+        const serverFilename = uploadResp.data.server_filename;
+        const processResp = await axios.post(
             `https://${server}/v1/process`,
             {
                 task,
@@ -60,6 +73,11 @@ bot.on("document", async (ctx) => {
             }
         );
 
+        console.log("Process response:", processResp.data);
+
+        if (!processResp.data.download_filename) {
+            throw new Error("Process failed");
+        }
         const downloadResp = await axios.get(
             `https://${server}/v1/download/${task}`,
             { responseType: "arraybuffer", headers: { Authorization: `Bearer ${token}` } }
@@ -78,20 +96,19 @@ bot.on("document", async (ctx) => {
 });
 
 //I'm broke
-const app = express();
-app.use(express.json());
-
 app.use(bot.webhookCallback("/webhook"));
 
 const PORT = process.env.PORT || 8080;
+
 app.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
-
+    
     try {
         await bot.telegram.setWebhook(`${WEBHOOK_URL}/webhook`);
-        console.log("Webhook set:", `${WEBHOOK_URL}/webhook`);
+        console.log("✅ Webhook set:", `${WEBHOOK_URL}/webhook`);
     } catch (err) {
-        console.error("Failed to set webhook:", err.message);
+        console.error("❌ Failed to set webhook:", err.message);
     }
 });
-
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
