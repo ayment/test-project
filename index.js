@@ -6,7 +6,7 @@ const express = require("express");
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const START_TASK_URL = process.env.START_TASK_URL;
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // <-- Add in Fly secrets
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 if (!BOT_TOKEN) throw new Error("Missing BOT_TOKEN");
 if (!START_TASK_URL) throw new Error("Missing START_TASK_URL");
@@ -14,9 +14,6 @@ if (!WEBHOOK_URL) throw new Error("Missing WEBHOOK_URL (your Fly.io https URL)")
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// ---------------------------
-//     DOCUMENT HANDLER
-// ---------------------------
 bot.on("document", async (ctx) => {
     try {
         const file = ctx.message.document;
@@ -97,3 +94,4 @@ app.listen(PORT, async () => {
         console.error("Failed to set webhook:", err.message);
     }
 });
+
